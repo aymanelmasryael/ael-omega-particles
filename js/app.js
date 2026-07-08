@@ -899,9 +899,273 @@ class PanelController {
   }
 }
 
+// ─── Canvas2D Fallback Engine ────────────────
+
+class CanvasFallback {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.particles = [];
+    this.count = 5000;
+    this.running = false;
+    this.time = 0;
+    this.fps = 0;
+    this.fpsCount = 0;
+    this.fpsTime = 0;
+    this.cursorX = 0;
+    this.cursorY = 0;
+    this.audio = new AudioInput();
+    this.theme = 'neon';
+    this.spawnShape = 0;
+    this.params = {
+      gravity: 0.2, vortex: 0, turbulence: 0.15,
+      particleSize: 1.0, speed: 1.0,
+      _baseParticleSize: 1.0, _baseSpeed: 1.0,
+    };
+  }
+
+  async init() {
+    document.getElementById('loadingOverlay').classList.add('hidden');
+    setTimeout(() => { document.getElementById('loadingOverlay').hidden = true; }, 600);
+    document.getElementById('fallbackMessage').hidden = true;
+
+    this.resize();
+    this.initParticles();
+    this.bindEvents();
+
+    const badge = document.createElement('div');
+    badge.className = 'fallback-badge';
+    badge.textContent = 'Canvas2D · Upgrade to WebGPU for 100K particles';
+    document.body.appendChild(badge);
+    const style = document.createElement('style');
+    style.textContent = `
+      .fallback-badge {
+        position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
+        z-index: 50; padding: 0.35rem 1rem; border-radius: 20px;
+        background: rgba(10,14,26,0.8); backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.06);
+        font-size: 0.6rem; font-family: 'JetBrains Mono', monospace;
+        color: rgba(230,238,248,0.35); white-space: nowrap;
+        pointer-events: none; user-select: none;
+      }
+      @media (max-width: 480px) {
+        .fallback-badge { font-size: 0.5rem; padding: 0.25rem 0.75rem; }
+      }
+    `;
+    document.head.appendChild(style);
+
+    this.running = true;
+    this.lastFrame = performance.now();
+    this.frame();
+    return this;
+  }
+
+  resize() {
+    const dpr = window.devicePixelRatio || 1;
+    this.canvas.width = this.canvas.clientWidth * dpr;
+    this.canvas.height = this.canvas.clientHeight * dpr;
+    this.ctx.scale(dpr, dpr);
+    this.w = this.canvas.clientWidth;
+    this.h = this.canvas.clientHeight;
+  }
+
+  initParticles() {
+    this.particles = [];
+    for (let i = 0; i < this.count; i++) {
+      this.particles.push(this.spawnParticle(i));
+    }
+  }
+
+  spawnParticle(i) {
+    const pos = this.spawnPos(i);
+    return {
+      x: pos[0], y: pos[1],
+      vx: (Math.random() - 0.5) * 2,
+      vy: (Math.random() - 0.5) * 2,
+      life: 2 + Math.random() * 4,
+      maxLife: 2 + Math.random() * 4,
+      size: 1 + Math.random() * 3,
+      r: 0.5 + Math.random() * 0.5,
+      g: 0.5 + Math.random() * 0.5,
+      b: 0.8 + Math.random() * 0.2,
+    };
+  }
+
+  spawnPos(i) {
+    const w = this.w || 800, h = this.h || 600;
+    const h1 = (i * 7) % 97 / 97, h2 = (i * 13) % 101 / 101, h3 = (i * 17) % 89 / 89;
+    switch (this.spawnShape) {
+      case 0: {
+        const theta = h1 * Math.PI * 2;
+        const phi = Math.acos(2 * h2 - 1);
+        const rad = Math.min(w, h) * 0.15 * (1 + h3);
+        return [w/2 + Math.sin(phi) * Math.cos(theta) * rad, h/2 + Math.sin(phi) * Math.sin(theta) * rad];
+      }
+      case 1:
+        return [w/2 + (h1 - 0.5) * w * 0.4, h/2 + (h2 - 0.5) * h * 0.4];
+      case 2: {
+        const a = h1 * Math.PI * 2;
+        const rad = Math.min(w, h) * 0.2;
+        return [w/2 + Math.cos(a) * rad, h/2 + Math.sin(a) * rad];
+      }
+      case 3: {
+        const arm = Math.floor(h1 * 3);
+        const t = h2 * Math.PI * 2 + arm * 2.094;
+        const dist = (h3 + 0.5) * Math.min(w, h) * 0.2;
+        const spread = (1 - dist / (Math.min(w, h) * 0.2)) * 30;
+        return [w/2 + Math.cos(t) * dist + (Math.random() - 0.5) * spread,
+                h/2 + Math.sin(t) * dist + (Math.random() - 0.5) * spread];
+      }
+      default: return [w/2 + (Math.random() - 0.5) * w * 0.3, h/2 + (Math.random() - 0.5) * h * 0.3];
+    }
+  }
+
+  bindEvents() {
+    window.addEventListener('resize', () => this.resize());
+    this.canvas.addEventListener('mousemove', e => {
+      this.cursorX = e.clientX;
+      this.cursorY = e.clientY;
+    });
+    this.canvas.addEventListener('touchmove', e => {
+      const t = e.touches[0];
+      this.cursorX = t.clientX;
+      this.cursorY = t.clientY;
+    }, { passive: true });
+  }
+
+  frame() {
+    if (!this.running) return;
+    const now = performance.now();
+    const dt = Math.min((now - this.lastFrame) / 1000, 0.05);
+    this.lastFrame = now;
+    this.time += dt;
+
+    this.fpsTime += dt;
+    this.fpsCount++;
+    if (this.fpsTime >= 1) {
+      this.fps = Math.round(this.fpsCount / this.fpsTime);
+      this.fpsTime = 0;
+      this.fpsCount = 0;
+    }
+
+    if (this.audio.active) {
+      this.audio.tick();
+      this.params.particleSize = this.params._baseParticleSize + this.audio.bass * 6;
+      this.params.speed = this.params._baseSpeed + this.audio.mid * 0.5;
+    }
+
+    this.updateParticles(dt);
+    this.render();
+    requestAnimationFrame(() => this.frame());
+  }
+
+  updateParticles(dt) {
+    const s = this.params.speed * dt;
+    const grav = this.params.gravity * 50 * dt;
+    const vortex = this.params.vortex * 30 * dt;
+    const turb = this.params.turbulence * 50 * dt;
+    const cx = this.cursorX, cy = this.cursorY;
+    const w = this.w || 800, h = this.h || 600;
+
+    for (let i = 0; i < this.particles.length; i++) {
+      const p = this.particles[i];
+      p.life -= dt * 0.3;
+      if (p.life <= 0) {
+        const np = this.spawnParticle(i);
+        p.x = np.x; p.y = np.y;
+        p.vx = np.vx; p.vy = np.vy;
+        p.life = np.life; p.maxLife = np.maxLife;
+        p.size = np.size;
+        p.r = np.r; p.g = np.g; p.b = np.b;
+        continue;
+      }
+
+      const dx = cx - p.x, dy = cy - p.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      p.vx += (dx / dist) * grav;
+      p.vy += (dy / dist) * grav;
+      if (vortex > 0.001) {
+        p.vx += -dy / dist * vortex;
+        p.vy += dx / dist * vortex;
+      }
+      if (turb > 0.001) {
+        p.vx += Math.sin(p.y * 0.02 + this.time * 1.3) * turb * dt;
+        p.vy += Math.cos(p.x * 0.017 + this.time * 1.1) * turb * dt;
+      }
+      p.vx *= 0.995;
+      p.vy *= 0.995;
+      p.x += p.vx * s * 60;
+      p.y += p.vy * s * 60;
+    }
+  }
+
+  render() {
+    const ctx = this.ctx;
+    const w = this.w, h = this.h;
+    ctx.clearRect(0, 0, w, h);
+
+    const theme = COLOR_THEMES[this.theme] || COLOR_THEMES.neon;
+    const sizeMul = this.params.particleSize;
+
+    for (const p of this.particles) {
+      const lifeRatio = p.life / p.maxLife;
+      if (lifeRatio <= 0) continue;
+      const fade = Math.min(lifeRatio / 0.2, 1) * Math.min((1 - lifeRatio) / 0.3, 1);
+      const alpha = fade * 0.6;
+      const radius = p.size * sizeMul;
+
+      const r = p.r * (1 - theme.r[0]) + theme.r[0];
+      const g = p.g * (1 - theme.g[0]) + theme.g[0];
+      const b = p.b * (1 - theme.b[0]) + theme.b[0];
+
+      const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius);
+      grad.addColorStop(0, `rgba(${r*255|0},${g*255|0},${b*255|0},${alpha})`);
+      grad.addColorStop(0.3, `rgba(${r*255|0},${g*255|0},${b*255|0},${alpha*0.5})`);
+      grad.addColorStop(1, `rgba(${r*255|0},${g*255|0},${b*255|0},0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    document.getElementById('statCount').textContent =
+      (this.count >= 1000 ? (this.count / 1000).toFixed(1) + 'K' : this.count);
+    document.getElementById('statFps').textContent = this.fps + ' FPS';
+  }
+
+  setParticleCount(n) { this.count = Math.min(n, 5000); this.initParticles(); }
+  setTheme(name) { this.theme = name; }
+  setSpawnShape(idx) { this.spawnShape = idx; }
+
+  destroy() {
+    this.running = false;
+    this.audio.stop();
+  }
+}
+
 // ─── Init ────────────────────────────────────
 
 async function main() {
+  const canvas = document.getElementById('particleCanvas');
+  const fallbackEl = document.getElementById('fallbackMessage');
+
+  if (!navigator.gpu) {
+    fallbackEl.hidden = true;
+    const engine = new CanvasFallback(canvas);
+    await engine.init();
+    new PanelController(engine);
+    return;
+  }
+
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    fallbackEl.hidden = true;
+    const engine = new CanvasFallback(canvas);
+    await engine.init();
+    new PanelController(engine);
+    return;
+  }
+
   const engine = new OmegaParticleEngine();
   await engine.init();
   if (engine.device) {
