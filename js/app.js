@@ -205,7 +205,7 @@ fn vertex(@builtin(vertex_index) vid: u32, @builtin(instance_index) iid: u32) ->
   clipPos.xy += quad[vid] * scale * clipPos.w;
 
   let fadeIn = smoothstep(0.0, 0.2, lifeRatio);
-  let fadeOut = smoothstep(1.0, 0.7, lifeRatio);
+  let fadeOut = 1.0 - smoothstep(0.7, 1.0, lifeRatio);
   let alpha = p.color.a * fadeIn * fadeOut;
 
   var out: VOut;
@@ -480,6 +480,16 @@ class OmegaParticleEngine {
     this.cursorY = 0;
 
     this.running = false;
+
+    this.params = {
+      gravity: 0.2,
+      vortex: 0,
+      turbulence: 0.15,
+      particleSize: 1.0,
+      speed: 1.0,
+      _baseParticleSize: 1.0,
+      _baseSpeed: 1.0,
+    };
   }
 
   async init() {
@@ -503,8 +513,9 @@ class OmegaParticleEngine {
     this.ctx = this.canvas.getContext('webgpu');
     this.format = navigator.gpu.getPreferredCanvasFormat();
 
-    this.canvas.width = this.canvas.clientWidth * devicePixelRatio;
-    this.canvas.height = this.canvas.clientHeight * devicePixelRatio;
+    const dpr = window.devicePixelRatio || 1;
+    this.canvas.width = this.canvas.clientWidth * dpr;
+    this.canvas.height = this.canvas.clientHeight * dpr;
 
     this.ctx.configure({
       device: this.device,
@@ -663,8 +674,9 @@ class OmegaParticleEngine {
   }
 
   resize() {
-    const w = this.canvas.clientWidth * devicePixelRatio;
-    const h = this.canvas.clientHeight * devicePixelRatio;
+    const dpr = window.devicePixelRatio || 1;
+    const w = this.canvas.clientWidth * dpr;
+    const h = this.canvas.clientHeight * dpr;
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas.width = w;
       this.canvas.height = h;
@@ -768,16 +780,6 @@ class PanelController {
     this.panel = document.getElementById('controlPanel');
     this.toggle = document.getElementById('controlsToggle');
     this.close = document.getElementById('panelClose');
-
-    engine.params = {
-      gravity: 0.2,
-      vortex: 0,
-      turbulence: 0.15,
-      particleSize: 1.0,
-      speed: 1.0,
-      _baseParticleSize: 1.0,
-      _baseSpeed: 1.0,
-    };
 
     this.bind();
   }
