@@ -80,4 +80,4 @@ cd ael-omega-particles
 
 ---
 
-(c) 2026 **Ayman Elmasry** — AEL Digital Studio. All rights reserved.
+**License:** MIT — Free for personal and commercial use.
